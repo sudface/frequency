@@ -1,16 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
-    <title>Transit Frequency Visualisation</title>
+    <title>Sydney Bus Frequency Visualisation</title>
 
-    <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
     <style>
-        html, body {
+        html,
+        body {
             height: 100%;
             margin: 0;
         }
@@ -83,318 +82,323 @@
         }
     </style>
 </head>
+
 <body>
+    <div id="sidebar"></div>
 
-<div id="sidebar"></div>
+    <div id="main">
+        <div id="controls">
+            <label>Day:</label>
+            <select id="dateSelect">
+                <option value="20260115">Weekday</option>
+                <option value="20260117">Saturday</option>
+                <option value="20260118" selected>Sunday</option>
+            </select>
 
-<div id="main">
-    <div id="controls">
-        <label>Day:</label>
-        <select id="dateSelect">
-            <option value="20260115">Weekday</option>
-            <option value="20260117">Saturday</option>
-            <option value="20260118" selected>Sunday</option>
-        </select>
+            <label>From:</label>
+            <input type="time" id="timeFrom" value="07:00" />
 
-        <label>From:</label>
-        <input type="time" id="timeFrom" value="07:00" />
+            <label>To:</label>
+            <input type="time" id="timeTo" value="09:00" />
 
-        <label>To:</label>
-        <input type="time" id="timeTo" value="09:00" />
+            <label>Min buses/hr:</label>
+            <input type="number" class="threshold" id="minBph" value="0" min="0" step="1" />
 
-        <label>Min buses/hr:</label>
-        <input type="number" class="threshold" id="minBph" value="0" min="0" step="1" />
+            <button id="updateBtn">Update</button>
 
-        <button id="updateBtn">Update</button>
-        
-        <button id="changeColours">Change Colours</button>
-        <span id="helpBtn">?</span>
+            <button id="changeColours">Change Colours</button>
+            <span id="helpBtn">?</span>
+        </div>
+
+        <div id="map" width="500" height="300"></div>
     </div>
 
-    <div id="map" width="500" height="300"></div>
-</div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map;
+        let stopLayer = L.layerGroup();
+        let dataset = null;
 
-<script>
-let map;
-let stopLayer = L.layerGroup();
-let dataset = null;
+        function timeToMinutes(t) {
+            const [h, m] = t.split(":").map(Number);
+            return h * 60 + m;
+        }
 
-/* ---------- Utilities ---------- */
+        function showStopDetails(stopId, services) {
+            const sidebar = document.getElementById("sidebar");
+            const [stopName] = dataset.stops[stopId];
 
-function timeToMinutes(t) {
-    const [h, m] = t.split(":").map(Number);
-    return h * 60 + m;
-}
+            sidebar.style.display = "block";
+            sidebar.innerHTML = `<button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button><h3>${stopName}</h3>`;
 
-/* ---------- Map ---------- */
+            if (services.length === 0) {
+                sidebar.innerHTML += "<p>No services in this time window.</p>";
+                return;
+            }
 
-function initMap() {
-    map = L.map("map").setView([-33.8148, 151], 12); // Parra
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors"
-    }).addTo(map);
-
-    stopLayer.addTo(map);
-}
-
-/* ---------- Sidebar ---------- */
-
-function showStopDetails(stopId, services) {
-    const sidebar = document.getElementById("sidebar");
-    const [stopName] = dataset.stops[stopId];
-
-    sidebar.style.display = "block";
-    sidebar.innerHTML = `<button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button><h3>${stopName}</h3>`;
-
-    if (services.length === 0) {
-        sidebar.innerHTML += "<p>No services in this time window.</p>";
-        return;
-    }
-
-    services.forEach(svc => {
-        sidebar.innerHTML += `
+            services.forEach(svc => {
+                sidebar.innerHTML += `
             <div class="service">
                 <strong>Route ${svc.routeNumber}</strong> ${svc.routeName}<br/>
                 <span class="direction">${svc.direction ? "Outbound" : "Inbound"}</span><br/>
                 <span class="direction">Time: ${svc.time}</span>
             </div>
         `;
-    });
-}
-
-/* ---------- Colours ---------- */
-
-const frequencyPresets = {
-    threeClass: [
-        { min: 0,   max: 1.9, color: "#ff0000" }, // red
-        { min: 2,   max: 3.9, color: "#ffa500" }, // orange
-        { min: 4,   max: Infinity, color: "#0000ff" } // blue
-    ],
-
-    fiveClass: [
-        { min: 0,   max: 1,   color: "#f95858" }, // Red
-        { min: 1.1, max: 3.9, color: "#ffa500" }, // Orange
-        { min: 4,   max: 5,   color: "#53ca53" }, // Light Green
-        { min: 5.1, max: 9.9, color: "#06402b" }, // Dark Green
-        { min: 10,  max: Infinity, color: "#010afe" } // Pink
-    ]
-};
-
-let frequencyClasses = structuredClone(frequencyPresets.threeClass);
-
-function frequencyColor(bph) {
-    for (const c of frequencyClasses) {
-        if (bph >= c.min && bph <= c.max) {
-            return c.color;
+            });
         }
-    }
-    return "#000000"; // defensive fallback
-}
-
-function showColourChanger() {
-    sidebar = document.getElementById("sidebar");
-    sidebar.style.display = "block";
-    sidebar.innerHTML = `
-        <button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>
-        <div id="frequency-controls">
-            <h3>Change Colours</h3>
+    </script>
     
-            <p>Change the rendering colours here. Select a range (inclusive) for each colour. The first matching range will be used.<br><br>Numbers are in <i>buses per hour</i>.</p>
-            <hr>
-            <label>
-                Number of colours:
-                <select id="frequency-preset">
-                    <option value="threeClass">3 classes (default)</option>
-                    <option value="fiveClass">5 classes</option>
-                </select>
-            </label>
+    <!-- Colours -->
     
-            <div id="frequency-editor"></div>
-        </div>
-    `;
+    <script>
+        /* ---------- Colours ---------- */
 
-    sidebar.addEventListener("change", e => {
-        if (e.target.closest("#frequency-editor")) {
-            updateFrequencyClasses();
-        }
-    });
+        const frequencyPresets = {
+            threeClass: [
+                { min: 0, max: 1.9, color: "#ff0000" }, // red
+                { min: 2, max: 3.9, color: "#ffa500" }, // orange
+                { min: 4, max: Infinity, color: "#0000ff" } // blue
+            ],
 
-    document.getElementById("frequency-preset").addEventListener("change", e => {
-        const preset = frequencyPresets[e.target.value];
-        frequencyClasses = structuredClone(preset);
-        renderFrequencyEditor();
-        updateVisualisation();
-    });
+            fiveClass: [
+                { min: 0, max: 1, color: "#f95858" }, // Red
+                { min: 1.1, max: 3.9, color: "#ffa500" }, // Orange
+                { min: 4, max: 5, color: "#53ca53" }, // Light Green
+                { min: 5.1, max: 9.9, color: "#06402b" }, // Dark Green
+                { min: 10, max: Infinity, color: "#010afe" } // Pink
+            ]
+        };
 
-    renderFrequencyEditor();
-}
+        let frequencyClasses = structuredClone(frequencyPresets.threeClass);
 
-
-
-function renderFrequencyEditor() {
-    const editor = document.getElementById("frequency-editor");
-    editor.innerHTML = "";
-
-    frequencyClasses.forEach((c, i) => {
-        editor.insertAdjacentHTML("beforeend", `
-            <div class="frequency-row">
-                <input type="number" class="threshold" step="0.1" value="${c.min}" data-i="${i}" data-k="min">
-                to
-                <input type="number" class="threshold" step="0.1" value="${c.max === Infinity ? "" : c.max}" placeholder="∞"
-                       data-i="${i}" data-k="max">
-                <input type="color" value="${c.color}" data-i="${i}" data-k="color">
-            </div>
-        `);
-    });
-}
-
-function updateFrequencyClasses() {
-    const inputs = sidebar.querySelectorAll("#frequency-editor input");
-
-    inputs.forEach(input => {
-        const i = Number(input.dataset.i);
-        const k = input.dataset.k;
-
-        if (k === "color") {
-            frequencyClasses[i].color = input.value;
-        } else {
-            frequencyClasses[i][k] =
-                input.value === "" && k === "max"
-                    ? Infinity
-                    : parseFloat(input.value);
-        }
-    });
-
-    updateVisualisation();
-}
-
-/* ---------- Data logic ---------- */
-function fetchData(date) {
-    document.getElementById("updateBtn").innerText = "Loading...";
-    document.getElementById("updateBtn").disabled = true;
-
-    fetch(`./details_${date}.json`)
-    .then(r => r.json())
-    .then(json => {
-        dataset = json;
-        updateVisualisation();
-        document.getElementById("updateBtn").innerText = "Update";
-        document.getElementById("updateBtn").disabled = false;
-    });
-
-}
-
-function updateVisualisation() {
-    stopLayer.clearLayers();
-
-    const fromMin = timeToMinutes(document.getElementById("timeFrom").value);
-    const toMin = timeToMinutes(document.getElementById("timeTo").value);
-
-    const stopdata = dataset.stops;
-    const timedata = dataset.times;
-
-    const stopsToRender = [];
-
-    for (const stopId in timedata) {
-        const [times, tripIds] = timedata[stopId];
-
-        let count = 0;
-        for (const t of times) {
-            if (t >= fromMin && t <= toMin) count++;
+        function frequencyColor(bph) {
+            for (const c of frequencyClasses) {
+                if (bph >= c.min && bph <= c.max) {
+                    return c.color;
+                }
+            }
+            return "#000000"; // defensive fallback
         }
 
-        if (count === 0) continue;
+        function showColourChanger() {
+            sidebar = document.getElementById("sidebar");
+            sidebar.style.display = "block";
+            sidebar.innerHTML = `
+                <button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>
+                <div id="frequency-controls">
+                    <h3>Change Colours</h3>
+            
+                    <p>Change the rendering colours here. Select a range (inclusive) for each colour. The first matching range will be used.<br><br>Numbers are in <i>buses per hour</i>.</p>
+                    <hr>
+                    <label>
+                        Number of colours:
+                        <select id="frequency-preset">
+                            <option value="threeClass">3 classes (default)</option>
+                            <option value="fiveClass">5 classes</option>
+                        </select>
+                    </label>
+            
+                    <div id="frequency-editor"></div>
+                </div>
+            `;
 
-        const bph = count / ((toMin - fromMin) / 60);
-
-        const minBph = Number(document.getElementById("minBph").value);
-        if (bph < minBph) continue;
-
-        const stop = stopdata[stopId];
-        if (!stop) continue;
-
-        const [name, [lat, lon]] = stop;
-
-        stopsToRender.push({stopId, lat, lon, count, bph});
-    }
-
-    stopsToRender.sort((a, b) => a.bph - b.bph);
-
-    console.log(stopsToRender)
-    for (stop of stopsToRender) {
-        const marker = L.circleMarker([stop.lat, stop.lon], {
-            radius: 4,
-            color: frequencyColor(stop.bph),
-            fillOpacity: 0.8,
-        });
-        const id = stop.stopId;
-
-        marker.on("click", () => {
-            const services = [];
-
-            timedata[id][0].forEach((t, idx) => {
-                if (t < fromMin || t > toMin) return;
-
-                const tripId = timedata[id][1][idx];
-                const [routeId, direction] = dataset.trips[tripId];
-                const [routeNumber, routeName] = dataset.routes[routeId];
-
-                services.push({
-                    routeNumber,
-                    routeName,
-                    direction,
-                    time: `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`
-                });
+            sidebar.addEventListener("change", e => {
+                if (e.target.closest("#frequency-editor")) {
+                    updateFrequencyClasses();
+                }
             });
 
-            showStopDetails(id, services);
+            document.getElementById("frequency-preset").addEventListener("change", e => {
+                const preset = frequencyPresets[e.target.value];
+                frequencyClasses = structuredClone(preset);
+                renderFrequencyEditor();
+                updateVisualisation();
+            });
+
+            renderFrequencyEditor();
+        }
+
+        function renderFrequencyEditor() {
+            const editor = document.getElementById("frequency-editor");
+            editor.innerHTML = "";
+
+            frequencyClasses.forEach((c, i) => {
+                editor.insertAdjacentHTML("beforeend", `
+                    <div class="frequency-row">
+                        <input type="number" class="threshold" step="0.1" value="${c.min}" data-i="${i}" data-k="min">
+                        to
+                        <input type="number" class="threshold" step="0.1" value="${c.max === Infinity ? "" : c.max}" placeholder="∞"
+                            data-i="${i}" data-k="max">
+                        <input type="color" value="${c.color}" data-i="${i}" data-k="color">
+                    </div>
+                `);
+            });
+        }
+
+        function updateFrequencyClasses() {
+            const inputs = sidebar.querySelectorAll("#frequency-editor input");
+
+            inputs.forEach(input => {
+                const i = Number(input.dataset.i);
+                const k = input.dataset.k;
+
+                if (k === "color") {
+                    frequencyClasses[i].color = input.value;
+                } else {
+                    frequencyClasses[i][k] =
+                        input.value === "" && k === "max"
+                            ? Infinity
+                            : parseFloat(input.value);
+                }
+            });
+
+            updateVisualisation();
+        }
+    </script>
+
+    <!-- Data -->
+
+    <script>
+        /* ---------- Data logic ---------- */
+        function fetchData(date) {
+            document.getElementById("updateBtn").innerText = "Loading...";
+            document.getElementById("updateBtn").disabled = true;
+
+            fetch(`./details_${date}.json`)
+                .then(r => r.json())
+                .then(json => {
+                    dataset = json;
+                    updateVisualisation();
+                    document.getElementById("updateBtn").innerText = "Update";
+                    document.getElementById("updateBtn").disabled = false;
+                });
+
+        }
+
+        function updateVisualisation() {
+            stopLayer.clearLayers();
+
+            const fromMin = timeToMinutes(document.getElementById("timeFrom").value);
+            const toMin = timeToMinutes(document.getElementById("timeTo").value);
+
+            const stopdata = dataset.stops;
+            const timedata = dataset.times;
+
+            const stopsToRender = [];
+
+            for (const stopId in timedata) {
+                const [times, tripIds] = timedata[stopId];
+
+                let count = 0;
+                for (const t of times) {
+                    if (t >= fromMin && t <= toMin) count++;
+                }
+
+                if (count === 0) continue;
+
+                const bph = count / ((toMin - fromMin) / 60);
+
+                const minBph = Number(document.getElementById("minBph").value);
+                if (bph < minBph) continue;
+
+                const stop = stopdata[stopId];
+                if (!stop) continue;
+
+                const [name, [lat, lon]] = stop;
+
+                stopsToRender.push({ stopId, lat, lon, count, bph });
+            }
+
+            stopsToRender.sort((a, b) => a.bph - b.bph);
+
+            console.log(stopsToRender)
+            for (stop of stopsToRender) {
+                const marker = L.circleMarker([stop.lat, stop.lon], {
+                    radius: 4,
+                    color: frequencyColor(stop.bph),
+                    fillOpacity: 0.8,
+                });
+                const id = stop.stopId;
+
+                marker.on("click", () => {
+                    const services = [];
+
+                    timedata[id][0].forEach((t, idx) => {
+                        if (t < fromMin || t > toMin) return;
+
+                        const tripId = timedata[id][1][idx];
+                        const [routeId, direction] = dataset.trips[tripId];
+                        const [routeNumber, routeName] = dataset.routes[routeId];
+
+                        services.push({
+                            routeNumber,
+                            routeName,
+                            direction,
+                            time: `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`
+                        });
+                    });
+
+                    showStopDetails(id, services);
+                });
+
+                stopLayer.addLayer(marker);
+            }
+        }
+    </script>
+    
+    <!-- Load -->
+    
+    <script>
+        /* ---------- Load ---------- */
+        document.getElementById("dateSelect").addEventListener("change", (e) => { fetchData(e.target.value) });
+        document.getElementById("updateBtn").addEventListener("click", updateVisualisation);
+        document.getElementById("changeColours").addEventListener("click", showColourChanger);
+        document.getElementById("helpBtn").addEventListener("click", () => {
+            const sidebar = document.getElementById("sidebar");
+            sidebar.style.display = "block";
+            sidebar.innerHTML = `
+                <button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>
+                <h2>About</h2>
+                This page shows the frequency at which bus service stops across the Sydney network. Stops along common corridors or interchanges will naturally have a much higher frequency than those around them.<br><br>
+                Frequency is calculated in "Buses per hour", given by the average number of buses that stop over a given period. <br><br>
+                You can click on a stop to view more details about the services in that timeframe. <br><br>
+                This period and day of week can be customised using the inputs at the top. Day of week is given by 3 indicative days in January 2026 (15, 17, 18 Jan).<br><br>
+                By default, Red shows stops with lower frequency, and Blue for higher frequency. The colour groupings can be customised using the "Change Colours" button. The map can also be filtered for stops above a certain frequency.<br><br>
+                <hr><br>
+                The information on this page is derived from data kindly <a href="https://opendata.transport.nsw.gov.au/data/dataset/public-transport-timetables-realtime/resource/9b3bfa13-0053-4008-8575-e30151f05d54">provided by Transport NSW</a>.<br><br>
+                If you find any issues, would like to see the code, or can help make the website better, contribute <a href="https://github.com/sudface/frequency">here on github</a>.<br><br>
+                <p class="legal">
+                    Please be aware that the data presented on this website is subject to potential inaccuracies. 
+                    While efforts have been made to ensure accuracy, we cannot guarantee the precision of the information.
+                    You are advised to exercise discretion and independently verify the data before making any decisions based on it. 
+                    The website owner and contributors are not liable for any consequences arising from the use of potentially inaccurate data.
+                    <br><br>
+                    This work is licensed under a <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
+                    You are free to:<br>
+                    - Share: Copy and redistribute the material in any medium or format.<br>
+                    - Adapt: Remix, transform, and build upon the material for any purpose.<br>
+                </p>
+            `;
+
         });
+        
+        function initMap() {
+            map = L.map("map").setView([-33.8148, 151], 12); // Parra
 
-        stopLayer.addLayer(marker);
-    }
-}
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "© OpenStreetMap contributors"
+            }).addTo(map);
 
-/* ---------- Load ---------- */
-document.getElementById("dateSelect").addEventListener("change", (e) => {fetchData(e.target.value)});
-document.getElementById("updateBtn").addEventListener("click", updateVisualisation);
-document.getElementById("changeColours").addEventListener("click", showColourChanger);
-document.getElementById("helpBtn").addEventListener("click", () => {
-    const sidebar = document.getElementById("sidebar");
-    sidebar.style.display = "block";
-    sidebar.innerHTML = `
-        <button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>
-        <h2>About</h2>
-        This page shows the frequency at which bus service stops across the Sydney network. Stops along common corridors or interchanges will naturally have a much higher frequency than those around them.<br><br>
-        Frequency is calculated in "Buses per hour", given by the average number of buses that stop over a given period. <br><br>
-        You can click on a stop to view more details about the services in that timeframe. <br><br>
-        This period and day of week can be customised using the inputs at the top. Day of week is given by 3 indicative days in January 2026 (15, 17, 18 Jan).<br><br>
-        By default, Red shows stops with lower frequency, and Blue for higher frequency. The colour groupings can be customised using the "Change Colours" button. The map can also be filtered for stops above a certain frequency.<br><br>
-        <hr><br>
-        The information on this page is derived from data kindly <a href="https://opendata.transport.nsw.gov.au/data/dataset/public-transport-timetables-realtime/resource/9b3bfa13-0053-4008-8575-e30151f05d54">provided by Transport NSW</a>.<br><br>
-        If you find any issues, would like to see the code, or can help make the website better, contribute <a href="https://github.com/sudface/frequency">here on github</a>.<br><br>
-        <p class="legal">
-            Please be aware that the data presented on this website is subject to potential inaccuracies. 
-            While efforts have been made to ensure accuracy, we cannot guarantee the precision of the information.
-            You are advised to exercise discretion and independently verify the data before making any decisions based on it. 
-            The website owner and contributors are not liable for any consequences arising from the use of potentially inaccurate data.
-            <br><br>
-            This work is licensed under a <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
-            You are free to:<br>
-            - Share: Copy and redistribute the material in any medium or format.<br>
-            - Adapt: Remix, transform, and build upon the material for any purpose.<br>
-        </p>
-    `;
+            stopLayer.addTo(map);
+        }
 
-});
-
-window.addEventListener("load", () => {
-    fetchData("20260118")
-    initMap();
-})
-</script>
+        window.addEventListener("load", () => {
+            fetchData("20260118");
+            initMap();
+        })
+    </script>
 
 </body>
+
 </html>
