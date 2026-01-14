@@ -96,10 +96,10 @@
             </select>
 
             <label>From:</label>
-            <input type="time" id="timeFrom" value="07:00" />
+            <input type="time" id="timeFrom" value="09:00" />
 
             <label>To:</label>
-            <input type="time" id="timeTo" value="09:00" />
+            <input type="time" id="timeTo" value="19:00" />
 
             <label>Min buses/hr:</label>
             <input type="number" class="threshold" id="minBph" value="0" min="0" step="1" />
@@ -264,9 +264,9 @@
 
         const frequencyPresets = {
             threeClass: [ // color colour color coloUr 
-                { min: 0, max: 1.9, color: "#ff0000" }, // red
-                { min: 2, max: 3.9, color: "#ffa500" }, // orange
-                { min: 4, max: Infinity, color: "#0000ff" } // blue
+                { min: 0, max: 1.5, color: "#ff0000" }, // red
+                { min: 1.5, max: 3.5, color: "#ffa500" }, // orange
+                { min: 3.5, max: Infinity, color: "#0000ff" } // blue
             ],
 
             fiveClass: [
