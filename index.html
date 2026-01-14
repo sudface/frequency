@@ -139,12 +139,12 @@
 
             services.forEach(svc => {
                 sidebar.innerHTML += `
-            <div class="service">
-                <strong>Route ${svc.routeNumber}</strong> ${svc.routeName}<br/>
-                <span class="direction">${svc.direction ? "Outbound" : "Inbound"}</span><br/>
-                <span class="direction">Time: ${svc.time}</span>
-            </div>
-        `;
+                    <div class="service">
+                        <strong>Route ${svc.routeNumber}</strong> ${svc.routeName}<br/>
+                        <span class="direction">${svc.direction ? "Outbound" : "Inbound"}</span><br/>
+                        <span class="direction">Time: ${svc.time}</span>
+                    </div>
+                `;
             });
         }
     </script>
@@ -155,7 +155,7 @@
         /* ---------- Colours ---------- */
 
         const frequencyPresets = {
-            threeClass: [
+            threeClass: [ // color colour color coloUr 
                 { min: 0, max: 1.9, color: "#ff0000" }, // red
                 { min: 2, max: 3.9, color: "#ffa500" }, // orange
                 { min: 4, max: Infinity, color: "#0000ff" } // blue
@@ -170,15 +170,17 @@
             ]
         };
 
+        // Clone because we allow user to mutate the data
         let frequencyClasses = structuredClone(frequencyPresets.threeClass);
 
+        // Given a BPH, return the colour for that bus frequency
         function frequencyColor(bph) {
             for (const c of frequencyClasses) {
                 if (bph >= c.min && bph <= c.max) {
                     return c.color;
                 }
             }
-            return "#000000"; // defensive fallback
+            return "#000000"; // fallback
         }
 
         function showColourChanger() {
@@ -203,12 +205,14 @@
                 </div>
             `;
 
+            // If a colour or minmax changes, save.
             sidebar.addEventListener("change", e => {
                 if (e.target.closest("#frequency-editor")) {
-                    updateFrequencyClasses();
+                    updateColours();
                 }
             });
 
+            // If the number of classes changes, reload the editor AND update vis.
             document.getElementById("frequency-preset").addEventListener("change", e => {
                 const preset = frequencyPresets[e.target.value];
                 frequencyClasses = structuredClone(preset);
@@ -219,6 +223,7 @@
             renderFrequencyEditor();
         }
 
+        // For every class in frequencyClasses, show an input for min/max/colour
         function renderFrequencyEditor() {
             const editor = document.getElementById("frequency-editor");
             editor.innerHTML = "";
@@ -226,30 +231,28 @@
             frequencyClasses.forEach((c, i) => {
                 editor.insertAdjacentHTML("beforeend", `
                     <div class="frequency-row">
-                        <input type="number" class="threshold" step="0.1" value="${c.min}" data-i="${i}" data-k="min">
+                        <input type="number" class="threshold" step="0.1" value="${c.min}" data-i="${i}" data-which="min">
                         to
-                        <input type="number" class="threshold" step="0.1" value="${c.max === Infinity ? "" : c.max}" placeholder="∞"
-                            data-i="${i}" data-k="max">
-                        <input type="color" value="${c.color}" data-i="${i}" data-k="color">
+                        <input type="number" class="threshold" step="0.1" value="${c.max === Infinity ? "" : c.max}" placeholder="∞" data-i="${i}" data-which="max">
+                        <input type="color" value="${c.color}" data-i="${i}" data-which="color">
                     </div>
                 `);
             });
         }
 
-        function updateFrequencyClasses() {
+        function updateColours() {
             const inputs = sidebar.querySelectorAll("#frequency-editor input");
 
             inputs.forEach(input => {
                 const i = Number(input.dataset.i);
-                const k = input.dataset.k;
+                const which = input.dataset.which; // min or max or colour
 
-                if (k === "color") {
+                if (which === "color") {
                     frequencyClasses[i].color = input.value;
+                } else if (which === "max" && input.value === "") {
+                    frequencyClasses[i][which] = Infinity;
                 } else {
-                    frequencyClasses[i][k] =
-                        input.value === "" && k === "max"
-                            ? Infinity
-                            : parseFloat(input.value);
+                    frequencyClasses[i][which] = parseFloat(input.value);
                 }
             });
 
@@ -273,7 +276,6 @@
                     document.getElementById("updateBtn").innerText = "Update";
                     document.getElementById("updateBtn").disabled = false;
                 });
-
         }
 
         function updateVisualisation() {
@@ -285,75 +287,79 @@
             const stopdata = dataset.stops;
             const timedata = dataset.times;
 
+            // First queue all stops to render. Then sort by frequency before rendering, so that higher frequency is "above" the lower fx.
             const stopsToRender = [];
 
             for (const stopId in timedata) {
-                const [times, tripIds] = timedata[stopId];
+                const [serviceTimes, tripIds] = timedata[stopId];
 
                 let count = 0;
-                for (const t of times) {
+                for (const t of serviceTimes) {
                     if (t >= fromMin && t <= toMin) count++;
                 }
 
+                // Don't render if there are no services at all, or if fails the minBph
                 if (count === 0) continue;
 
                 const bph = count / ((toMin - fromMin) / 60);
-
                 const minBph = Number(document.getElementById("minBph").value);
                 if (bph < minBph) continue;
 
-                const stop = stopdata[stopId];
-                if (!stop) continue;
-
+                // Add to render queue
                 const [name, [lat, lon]] = stop;
-
                 stopsToRender.push({ stopId, lat, lon, count, bph });
             }
 
             stopsToRender.sort((a, b) => a.bph - b.bph);
 
-            console.log(stopsToRender)
-            for (stop of stopsToRender) {
-                const marker = L.circleMarker([stop.lat, stop.lon], {
-                    radius: 4,
-                    color: frequencyColor(stop.bph),
-                    fillOpacity: 0.8,
-                });
-                const id = stop.stopId;
+            stopsToRender.forEach(stop => addStop(stop));
+        }
 
-                marker.on("click", () => {
-                    const services = [];
+        function addStop() {
+            const marker = L.circleMarker([stop.lat, stop.lon], {
+                radius: 4,
+                color: frequencyColor(stop.bph),
+                fillOpacity: 0.8,
+            });
 
-                    timedata[id][0].forEach((t, idx) => {
-                        if (t < fromMin || t > toMin) return;
+            // Wow Javascript scoping. Redeclare stopId as a constant here otherwise bad things happen.
+            const id = stop.stopId;
 
-                        const tripId = timedata[id][1][idx];
-                        const [routeId, direction] = dataset.trips[tripId];
-                        const [routeNumber, routeName] = dataset.routes[routeId];
+            // Generate the on-click sidebar.
+            marker.on("click", () => {
+                const services = [];
 
-                        services.push({
-                            routeNumber,
-                            routeName,
-                            direction,
-                            time: `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`
-                        });
+                // Get every service at that stopId in the allowed time range
+                timedata[id][0].forEach((t, idx) => {
+                    if (t < fromMin || t > toMin) return;
+
+                    const tripId = timedata[id][1][idx];
+                    const [routeId, direction] = dataset.trips[tripId];
+                    const [routeNumber, routeName] = dataset.routes[routeId];
+
+                    services.push({
+                        routeNumber,
+                        routeName,
+                        direction,
+                        time: `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`
                     });
-
-                    showStopDetails(id, services);
                 });
 
-                stopLayer.addLayer(marker);
-            }
+                showStopDetails(id, services);
+            });
+
+            stopLayer.addLayer(marker);
         }
     </script>
     
     <!-- Load -->
     
     <script>
-        /* ---------- Load ---------- */
+        // Register buttons and helptext, load data
         document.getElementById("dateSelect").addEventListener("change", (e) => { fetchData(e.target.value) });
         document.getElementById("updateBtn").addEventListener("click", updateVisualisation);
         document.getElementById("changeColours").addEventListener("click", showColourChanger);
+        
         document.getElementById("helpBtn").addEventListener("click", () => {
             const sidebar = document.getElementById("sidebar");
             sidebar.style.display = "block";
