@@ -384,11 +384,14 @@
                 });
         }
 
+        const DAYMAX = 24*60;
+
         function updateVisualisation() {
             stopLayer.clearLayers();
 
             const fromMin = timeToMinutes(document.getElementById("timeFrom").value);
-            const toMin = timeToMinutes(document.getElementById("timeTo").value);
+            let toMin = timeToMinutes(document.getElementById("timeTo").value);
+            if (toMin < fromMin) toMin += DAYMAX;
 
             const stopdata = dataset.stops;
             const timedata = dataset.times;
@@ -401,7 +404,7 @@
 
                 let count = 0;
                 for (const t of serviceTimes) {
-                    if (t >= fromMin && t <= toMin) count++;
+                    if (timeInRange(t, fromMin, toMin)) count++;
                 }
 
                 // Don't render if there are no services at all, or if fails the minBph
@@ -421,7 +424,33 @@
             stopsToRender.forEach(stop => addStop(stop));
         }
 
+        function timeInRange(t, from, to) {
+            // Account for 36h input time
+            if (t > DAYMAX) {
+                t -= DAYMAX;
+            }
+
+            if (to > DAYMAX) {
+                to -= DAYMAX;
+            }
+
+            // Wrap over a day 
+            if (to < from) {
+                if (0 <= t && t <= to) return true;
+                if (from <= t && t <= DAYMAX) return true;
+            }
+            
+            if (from <= t && t <= to) return true;
+            return false;
+        }
+
+        function minsToTime(t) {
+            // --------------------------- \/ mod24 to account for 36h time
+            return `${(Math.floor(t / 60) % 24).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`;
+        }
+
         function addStop(stop) {
+            if (stop == 216395) debugger;
             const fromMin = timeToMinutes(document.getElementById("timeFrom").value);
             const toMin = timeToMinutes(document.getElementById("timeTo").value);
             const timedata = dataset.times;
@@ -441,7 +470,7 @@
 
                 // Get every service at that stopId in the allowed time range
                 timedata[id][0].forEach((t, idx) => {
-                    if (t < fromMin || t > toMin) return;
+                    if (!timeInRange(t, fromMin, toMin)) return;
 
                     const tripId = timedata[id][1][idx];
                     const [routeId, direction] = dataset.trips[tripId];
@@ -451,7 +480,7 @@
                         routeNumber,
                         routeName,
                         direction,
-                        time: `${Math.floor(t / 60).toString().padStart(2, "0")}:${(t % 60).toString().padStart(2, "0")}`
+                        time: minsToTime(t)
                     });
                 });
 
