@@ -115,6 +115,84 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+    <style>
+        /*** pid-style css courtesy of Dr. ChatGPT :) ***/
+        .pid {
+            background: white;
+            color: black;
+            font-family: "Helvetica Neue", Arial, sans-serif;
+            padding: 12px;
+        }
+
+        .pid-header {
+            border-bottom: 2px solid #42a1da;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+        }
+
+        .pid-title {
+            font-size: 11px;
+            letter-spacing: 1px;
+            color: #3192ce;
+        }
+
+
+        .pid-stop-name {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .pid-body {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .pid-row {
+            display: grid;
+            grid-template-columns: 60px 1fr 60px;
+            align-items: center;
+            background: #efefef;
+            padding: 6px 8px;
+        }
+
+        .pid-route {
+            background: #42a1da;
+            color: white;
+            font-weight: 700;
+            text-align: center;
+            padding: 4px 0;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+
+        .pid-destination {
+            font-size: 14px;
+            font-weight: 600;
+            padding-left: 8px;
+        }
+
+        .pid-direction {
+            font-size: 11px;
+            font-weight: 400;
+            color: gray;
+        }
+
+        .pid-time {
+            text-align: right;
+            font-size: 14px;
+            font-family: "Courier New", monospace;
+            color: blue;
+        }
+
+        .pid-empty {
+            text-align: center;
+            font-size: 14px;
+            color: black;
+            padding: 12px 0;
+        }
+    </style>
+
     <script>
         let map;
         let stopLayer = L.layerGroup();
@@ -125,23 +203,47 @@
             return h * 60 + m;
         }
 
-        function showStopDetails(stopId, services) {
+        function routeHasColour(route) {
+            if (route.startsWith("B")) return "style='background-color: #f3ac00'";
+            if (route.startsWith("N") || route.endsWith("N")) return "style='background-color: #0b2640'";
+            if (route.startsWith("6") && route.endsWith("X")) return "style='background-color: #f3ac00'";
+            if (route.startsWith("M")) return "style='background-color: #b91820'";
+            if (route.startsWith("SW")) return "style='background-color: #e02091'";
+            if (route == "T80") return "style='background-color: #264847'";
+        }
+
+        function showStopDetails(stopId, services, bph) {
             const sidebar = createSidebar();
             const [stopName] = dataset.stops[stopId];
 
-            sidebar.innerHTML += `<h3>${stopName}</h3>`;
+            sidebar.innerHTML += `
+                <div class="pid">
+                    <div class="pid-header">
+                        <div class="pid-title">${bph} buses per hour</div>
+                        <div class="pid-stop-name">${stopName}</div>
+                    </div>
+                    <div class="pid-body"></div>
+                </div>
+            `;
+
+            const body = sidebar.querySelector(".pid-body");
 
             if (services.length === 0) {
-                sidebar.innerHTML += "<p>No services in this time window.</p>";
+                body.innerHTML = `<div class="pid-row pid-empty">No services scheduled</div>`;
                 return;
             }
 
             services.forEach(svc => {
-                sidebar.innerHTML += `
-                    <div class="service">
-                        <strong>Route ${svc.routeNumber}</strong> ${svc.routeName}<br/>
-                        <span class="direction">${svc.direction ? "Outbound" : "Inbound"}</span><br/>
-                        <span class="direction">Time: ${svc.time}</span>
+                body.innerHTML += `
+                    <div class="pid-row">
+                        <div class="pid-route" ${routeHasColour(svc.routeNumber)}>${svc.routeNumber}</div>
+                        <div class="pid-destination">
+                            ${svc.routeName}
+                            <div class="pid-direction">
+                                ${svc.direction ? "Outbound" : "Inbound"}
+                            </div>
+                        </div>
+                        <div class="pid-time">${svc.time}</div>
                     </div>
                 `;
             });
@@ -353,7 +455,7 @@
                     });
                 });
 
-                showStopDetails(id, services);
+                showStopDetails(id, services, stop.bph);
             });
 
             stopLayer.addLayer(marker);
@@ -406,6 +508,12 @@
         }
 
         window.addEventListener("load", () => {
+            const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
+
+            if (isMobile) {
+                alert("This website is very performance intensive and is designed for Desktop Browsers. You might be using a Mobile Device. Please use a desktop browser for the best experience. Still proceed?");
+            }
+
             fetchData("20260118");
             initMap();
         })
