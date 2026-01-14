@@ -126,11 +126,10 @@
         }
 
         function showStopDetails(stopId, services) {
-            const sidebar = document.getElementById("sidebar");
+            const sidebar = createSidebar();
             const [stopName] = dataset.stops[stopId];
 
-            sidebar.style.display = "block";
-            sidebar.innerHTML = `<button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button><h3>${stopName}</h3>`;
+            sidebar.innerHTML += `<h3>${stopName}</h3>`;
 
             if (services.length === 0) {
                 sidebar.innerHTML += "<p>No services in this time window.</p>";
@@ -146,6 +145,13 @@
                     </div>
                 `;
             });
+        }
+
+        function createSidebar() {
+            const sidebar = document.getElementById("sidebar");
+            sidebar.style.display = "block";
+            sidebar.innerHTML = `<button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>`;
+            return sidebar;
         }
     </script>
     
@@ -184,10 +190,8 @@
         }
 
         function showColourChanger() {
-            sidebar = document.getElementById("sidebar");
-            sidebar.style.display = "block";
-            sidebar.innerHTML = `
-                <button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>
+            const sidebar = createSidebar();
+            sidebar.innerHTML += `
                 <div id="frequency-controls">
                     <h3>Change Colours</h3>
             
@@ -306,7 +310,7 @@
                 if (bph < minBph) continue;
 
                 // Add to render queue
-                const [name, [lat, lon]] = stop;
+                const [name, [lat, lon]] = stopdata[stopId];
                 stopsToRender.push({ stopId, lat, lon, count, bph });
             }
 
@@ -315,7 +319,11 @@
             stopsToRender.forEach(stop => addStop(stop));
         }
 
-        function addStop() {
+        function addStop(stop) {
+            const fromMin = timeToMinutes(document.getElementById("timeFrom").value);
+            const toMin = timeToMinutes(document.getElementById("timeTo").value);
+            const timedata = dataset.times;
+
             const marker = L.circleMarker([stop.lat, stop.lon], {
                 radius: 4,
                 color: frequencyColor(stop.bph),
@@ -361,10 +369,8 @@
         document.getElementById("changeColours").addEventListener("click", showColourChanger);
         
         document.getElementById("helpBtn").addEventListener("click", () => {
-            const sidebar = document.getElementById("sidebar");
-            sidebar.style.display = "block";
-            sidebar.innerHTML = `
-                <button id="closeSidebar" onclick='document.getElementById("sidebar").style.display = "none";'>×</button>
+            const sidebar = createSidebar();
+            sidebar.innerHTML += `
                 <h2>About</h2>
                 This page shows the frequency at which bus service stops across the Sydney network. Stops along common corridors or interchanges will naturally have a much higher frequency than those around them.<br><br>
                 Frequency is calculated in "Buses per hour", given by the average number of buses that stop over a given period. <br><br>
